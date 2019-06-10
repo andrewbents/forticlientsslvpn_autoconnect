@@ -35,18 +35,26 @@ def connect_to_pop_server():
     connection.pass_(emailpassword)
     return connection
 
-def get_auth_code_email(pop_connection):
-    _, messages, __ = pop_connection.list()
-    _, lines, __ = pop_connection.retr(len(messages))
-
-    msg_content = b'\r\n'.join(lines).decode('utf-8')
-    return Parser().parsestr(msg_content)
-
-def extract_auth_code(msg):
+def extract_auth_code_from_msg(msg):
     subject = msg.get('Subject')
     match = re.search('AuthCode: (\d{6})', subject)
 
-    return match.group(1)
+    return match.group(1) if match else None
+
+def get_auth_code(pop_connection):
+    _, messages, __ = pop_connection.list()
+    messages_len = len(messages)
+
+    for i in xrange(messages_len, messages_len - 4, -1):
+        _, lines, __ = pop_connection.retr(i)
+        msg_content = b'\r\n'.join(lines).decode('utf-8')
+        msg = Parser().parsestr(msg_content)
+
+        code = extract_auth_code_from_msg(msg)
+        if code != None:
+            return code
+
+    return None
 
 def enter_auth_code(forticlient, code):
     forticlient.sendline(code)
@@ -55,8 +63,7 @@ def enter_auth_code(forticlient, code):
     forticlient.expect('STATUS::Tunnel running')
 
 def setup_static_route(route):
-    print "Adding static route...:"
-    print route
+    print "Adding static route...:", route
     pexpect.run(route)
 
 
@@ -65,9 +72,7 @@ forticlient = pexpect.spawn('./forticlientsslvpn_cli --server {} --vpnuser {}'.f
 login_to_vpn(forticlient)
 
 wait_for_auth_code_email()
-auth_code_email = get_auth_code_email(connect_to_pop_server())
-
-code = extract_auth_code(auth_code_email)
+code = get_auth_code(connect_to_pop_server())
 enter_auth_code(forticlient, code)
 
 setup_static_route(route)
